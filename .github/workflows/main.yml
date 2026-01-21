@@ -17,8 +17,8 @@ jobs:
           Write-Host "Configuring audio services..."
           sc.exe config Audiosrv start= auto
           sc.exe config AudioEndpointBuilder start= auto
-          net start Audiosrv 2>$null
-          net start AudioEndpointBuilder 2>$null
+          Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
+          Start-Service -Name AudioEndpointBuilder -ErrorAction SilentlyContinue
           Write-Host "Audio services configured successfully"
       
       - name: Create RDP User

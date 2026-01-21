@@ -1,0 +1,64 @@
+name: VIDURA_ULTIMATE_RDP
+on:
+  workflow_dispatch:
+jobs:
+  secure-rdp:
+    runs-on: windows-latest
+    timeout-minutes: 3600
+    steps:
+      - name: Configure Core RDP Settings
+        run: |
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' -Name "fDenyTSConnections" -Value 0 -Force
+          Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
+          netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
+      
+      - name: Enable Windows Audio Services (CRITICAL)
+        run: |
+          sc.exe config Audiosrv start= auto
+          sc.exe config AudioEndpointBuilder start= auto
+          Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
+          Start-Service -Name AudioEndpointBuilder -ErrorAction SilentlyContinue
+          Get-Service -Name Audiosrv, AudioEndpointBuilder | Select-Object Name, Status
+      
+      - name: Install Virtual Audio Cable (VB-CABLE)
+        run: |
+          $vbcableUrl = "https://download.vb-audio.com/Download_Html/VBCABLE_Driver_Pack43.zip"
+          $zipPath = "$env:TEMP\vbcable.zip"
+          $extractPath = "$env:TEMP\vbcable"
+          
+          Invoke-WebRequest -Uri $vbcableUrl -OutFile $zipPath
+          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+          
+          Start-Process -FilePath "$extractPath\VBCABLE_Setup_x64.exe" -ArgumentList "/i", "/s" -Wait -Verb RunAs
+          
+          Stop-Service -Name Audiosrv -Force
+          Start-Sleep -Seconds 2
+          Start-Service -Name Audiosrv
+      
+      - name: Create RDP User
+        run: |
+          $password = "BhashaShilpi@123"
+          $securePass = ConvertTo-SecureString $password -AsPlainText -Force
+          New-LocalUser -Name "ViduraAdmin" -Password $securePass -AccountNeverExpires
+          Add-LocalGroupMember -Group "Administrators" -Member "ViduraAdmin"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "ViduraAdmin"
+          echo "PASSWORD=$password" >> $env:GITHUB_ENV
+      
+      - name: Install and Setup Tailscale
+        run: |
+          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          Invoke-WebRequest -Uri $tsUrl -OutFile "$env:TEMP\tailscale.msi"
+          Start-Process msiexec.exe -ArgumentList "/i", "$env:TEMP\tailscale.msi", "/quiet" -Wait
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=vidura-god-mode
+          $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          echo "TS_IP=$tsIP" >> $env:GITHUB_ENV
+      
+      - name: Keep Alive & Info
+        run: |
+          Write-Host "`n=== VIDURA RDP READY ==="
+          Write-Host "IP: $env:TS_IP"
+          Write-Host "User: ViduraAdmin"
+          Write-Host "Pass: $env:PASSWORD"
+          Write-Host "Note: Go to Sound Settings in RDP and verify VB-CABLE is Default."
+          Write-Host "========================`n"
+          while ($true) { Start-Sleep -Seconds 300 }

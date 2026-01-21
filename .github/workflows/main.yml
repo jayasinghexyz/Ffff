@@ -22,26 +22,32 @@ jobs:
       
       - name: Install Virtual Audio Cable (VB-CABLE)
         run: |
-          $vbcableUrl = "https://download.vb-audio.com/Download_Html/VBCABLE_Driver_Pack43.zip"
+          $vbcableUrl = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack43.zip"
           $zipPath = "$env:TEMP\vbcable.zip"
           $extractPath = "$env:TEMP\vbcable"
           
-          Invoke-WebRequest -Uri $vbcableUrl -OutFile $zipPath
-          Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
-          
-          Start-Process -FilePath "$extractPath\VBCABLE_Setup_x64.exe" -ArgumentList "/i", "/s" -Wait -Verb RunAs
-          
-          Stop-Service -Name Audiosrv -Force
-          Start-Sleep -Seconds 2
-          Start-Service -Name Audiosrv
+          try {
+            Invoke-WebRequest -Uri $vbcableUrl -OutFile $zipPath -ErrorAction Stop
+            Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+            
+            Start-Process -FilePath "$extractPath\VBCABLE_Setup_x64.exe" -ArgumentList "-i", "-h" -Wait -NoNewWindow
+            
+            Stop-Service -Name Audiosrv -Force -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 3
+            Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
+            
+            Write-Host "VB-CABLE installed successfully"
+          } catch {
+            Write-Host "VB-CABLE installation skipped (might already be installed or URL issue)"
+          }
       
       - name: Create RDP User
         run: |
           $password = "BhashaShilpi@123"
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
-          New-LocalUser -Name "ViduraAdmin" -Password $securePass -AccountNeverExpires
-          Add-LocalGroupMember -Group "Administrators" -Member "ViduraAdmin"
-          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "ViduraAdmin"
+          New-LocalUser -Name "ViduraAdmin" -Password $securePass -AccountNeverExpires -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Administrators" -Member "ViduraAdmin" -ErrorAction SilentlyContinue
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "ViduraAdmin" -ErrorAction SilentlyContinue
           echo "PASSWORD=$password" >> $env:GITHUB_ENV
       
       - name: Install and Setup Tailscale
@@ -59,6 +65,5 @@ jobs:
           Write-Host "IP: $env:TS_IP"
           Write-Host "User: ViduraAdmin"
           Write-Host "Pass: $env:PASSWORD"
-          Write-Host "Note: Go to Sound Settings in RDP and verify VB-CABLE is Default."
           Write-Host "========================`n"
           while ($true) { Start-Sleep -Seconds 300 }

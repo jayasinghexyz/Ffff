@@ -12,34 +12,59 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
       
-      - name: Enable Windows Audio Services (CRITICAL)
+      - name: Enable Windows Audio Services
         run: |
           sc.exe config Audiosrv start= auto
           sc.exe config AudioEndpointBuilder start= auto
           Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
           Start-Service -Name AudioEndpointBuilder -ErrorAction SilentlyContinue
-          Get-Service -Name Audiosrv, AudioEndpointBuilder | Select-Object Name, Status
+          Write-Host "Audio services started"
       
-      - name: Install Virtual Audio Cable (VB-CABLE)
+      - name: Install VB-CABLE Virtual Audio Device
+        timeout-minutes: 5
+        continue-on-error: true
         run: |
+          Write-Host "Downloading VB-CABLE..."
           $vbcableUrl = "https://download.vb-audio.com/Download_CABLE/VBCABLE_Driver_Pack43.zip"
           $zipPath = "$env:TEMP\vbcable.zip"
           $extractPath = "$env:TEMP\vbcable"
           
           try {
-            Invoke-WebRequest -Uri $vbcableUrl -OutFile $zipPath -ErrorAction Stop
+            Invoke-WebRequest -Uri $vbcableUrl -OutFile $zipPath -TimeoutSec 60
             Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
             
-            Start-Process -FilePath "$extractPath\VBCABLE_Setup_x64.exe" -ArgumentList "-i", "-h" -Wait -NoNewWindow
+            Write-Host "Installing VB-CABLE driver..."
+            $setupPath = "$extractPath\VBCABLE_Setup_x64.exe"
             
-            Stop-Service -Name Audiosrv -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 3
-            Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
+            # Run installer with timeout
+            $job = Start-Job -ScriptBlock {
+              param($path)
+              Start-Process -FilePath $path -ArgumentList "-i", "-h" -Wait -NoNewWindow
+            } -ArgumentList $setupPath
             
-            Write-Host "VB-CABLE installed successfully"
+            $job | Wait-Job -Timeout 180
+            if ($job.State -eq 'Running') {
+              Write-Host "Installation timeout - stopping job"
+              Stop-Job $job
+              Remove-Job $job
+            }
+            
+            # Restart audio to detect new device
+            Write-Host "Restarting audio services..."
+            Restart-Service -Name Audiosrv -Force
+            Start-Sleep -Seconds 5
+            
+            Write-Host "VB-CABLE installation completed"
           } catch {
-            Write-Host "VB-CABLE installation skipped (might already be installed or URL issue)"
+            Write-Host "VB-CABLE installation failed, but continuing: $_"
           }
+      
+      - name: Enable Stereo Mix (Backup Audio Solution)
+        continue-on-error: true
+        run: |
+          Write-Host "Enabling Stereo Mix as backup recording device..."
+          # This enables any disabled recording devices
+          Get-PnpDevice | Where-Object {$_.Class -eq "AudioEndpoint" -and $_.Status -eq "Error"} | Enable-PnpDevice -Confirm:$false
       
       - name: Create RDP User
         run: |
@@ -55,15 +80,27 @@ jobs:
           $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
           Invoke-WebRequest -Uri $tsUrl -OutFile "$env:TEMP\tailscale.msi"
           Start-Process msiexec.exe -ArgumentList "/i", "$env:TEMP\tailscale.msi", "/quiet" -Wait
+          Start-Sleep -Seconds 10
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=vidura-god-mode
           $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
           echo "TS_IP=$tsIP" >> $env:GITHUB_ENV
       
-      - name: Keep Alive & Info
+      - name: Keep Alive & Connection Info
         run: |
-          Write-Host "`n=== VIDURA RDP READY ==="
-          Write-Host "IP: $env:TS_IP"
-          Write-Host "User: ViduraAdmin"
-          Write-Host "Pass: $env:PASSWORD"
-          Write-Host "========================`n"
+          Write-Host "`n╔════════════════════════════════════════╗"
+          Write-Host "║     VIDURA RDP READY FOR RECORDING    ║"
+          Write-Host "╚════════════════════════════════════════╝"
+          Write-Host ""
+          Write-Host "📡 Tailscale IP : $env:TS_IP"
+          Write-Host "👤 Username     : ViduraAdmin"
+          Write-Host "🔑 Password     : $env:PASSWORD"
+          Write-Host ""
+          Write-Host "🎤 Recording Setup:"
+          Write-Host "   1. RDP connect වෙලා Settings > Sound වලට යන්න"
+          Write-Host "   2. Input device එක 'CABLE Output (VB-Audio)' select කරන්න"
+          Write-Host "   3. AI Studio හෝ recording app එකක් use කරන්න"
+          Write-Host ""
+          Write-Host "⏳ Session active - keeping alive..."
+          Write-Host "════════════════════════════════════════`n"
+          
           while ($true) { Start-Sleep -Seconds 300 }

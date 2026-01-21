@@ -12,20 +12,14 @@ jobs:
           Set-ItemProperty -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' -Name "UserAuthentication" -Value 0 -Force
           netsh advfirewall firewall add rule name="RDP-Allow" dir=in action=allow protocol=TCP localport=3389
       
-      - name: Enable Audio Services & Recording
+      - name: Enable Audio Services
         run: |
-          Write-Host "Starting audio services..."
+          Write-Host "Configuring audio services..."
           sc.exe config Audiosrv start= auto
           sc.exe config AudioEndpointBuilder start= auto
-          Start-Service -Name Audiosrv -ErrorAction SilentlyContinue
-          Start-Service -Name AudioEndpointBuilder -ErrorAction SilentlyContinue
-          Start-Sleep -Seconds 3
-          
-          Write-Host "Enabling all audio devices..."
-          # Enable all disabled audio devices (including Stereo Mix)
-          Get-PnpDevice -Class AudioEndpoint | Where-Object {$_.Status -ne "OK"} | Enable-PnpDevice -Confirm:$false -ErrorAction SilentlyContinue
-          
-          Write-Host "Audio setup complete"
+          net start Audiosrv 2>$null
+          net start AudioEndpointBuilder 2>$null
+          Write-Host "Audio services configured successfully"
       
       - name: Create RDP User
         run: |
@@ -35,6 +29,7 @@ jobs:
           Add-LocalGroupMember -Group "Administrators" -Member "ViduraAdmin" -ErrorAction SilentlyContinue
           Add-LocalGroupMember -Group "Remote Desktop Users" -Member "ViduraAdmin" -ErrorAction SilentlyContinue
           echo "PASSWORD=$password" >> $env:GITHUB_ENV
+          Write-Host "RDP user created successfully"
       
       - name: Install and Setup Tailscale
         run: |
@@ -44,33 +39,43 @@ jobs:
           Start-Process msiexec.exe -ArgumentList "/i", "$env:TEMP\tailscale.msi", "/quiet" -Wait
           Start-Sleep -Seconds 10
           
-          Write-Host "Connecting to Tailscale..."
+          Write-Host "Connecting to Tailscale network..."
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=vidura-god-mode
           $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
           echo "TS_IP=$tsIP" >> $env:GITHUB_ENV
+          Write-Host "Tailscale connected: $tsIP"
       
-      - name: Keep Alive & Info
+      - name: Keep Alive & Display Info
         run: |
-          Write-Host "`n╔════════════════════════════════════════╗"
-          Write-Host "║       VIDURA RDP + AUDIO READY        ║"
-          Write-Host "╚════════════════════════════════════════╝"
           Write-Host ""
-          Write-Host "📡 IP Address : $env:TS_IP"
-          Write-Host "👤 Username   : ViduraAdmin"
-          Write-Host "🔑 Password   : $env:PASSWORD"
+          Write-Host "╔═════════════════════════════════════════════╗"
+          Write-Host "║     VIDURA RDP SERVER - READY TO USE       ║"
+          Write-Host "╚═════════════════════════════════════════════╝"
           Write-Host ""
-          Write-Host "🎤 Audio Recording Setup:"
-          Write-Host "   1. RDP connect වෙන්න"
-          Write-Host "   2. Sound Settings > Input වලට යන්න"
-          Write-Host "   3. Recording device එකක් select කරන්න"
-          Write-Host "   4. AI Studio හෝ Voice Recorder open කරන්න"
+          Write-Host "📡 Connection Details:"
+          Write-Host "   IP Address : $env:TS_IP"
+          Write-Host "   Username   : ViduraAdmin"
+          Write-Host "   Password   : $env:PASSWORD"
           Write-Host ""
-          Write-Host "💡 Tip: Chrome browser එකෙන් වැඩ කරන්න"
-          Write-Host "   online AI tools වලට microphone access දෙන්න"
+          Write-Host "🎤 Voice Recording Setup (RDP වෙලා පස්සේ):"
+          Write-Host "   1. Chrome Browser install කරන්න"
+          Write-Host "   2. Google AI Studio / ChatGPT වලට යන්න"
+          Write-Host "   3. Voice chat option එක use කරන්න"
+          Write-Host "   4. Browser එකෙන් microphone permission දෙන්න"
           Write-Host ""
-          Write-Host "⏳ Keeping session alive...`n"
+          Write-Host "💡 Tips:"
+          Write-Host "   - Online AI tools (browser-based) වැඩ කරයි"
+          Write-Host "   - System audio default වශයෙන් enable වෙලා තියෙනවා"
+          Write-Host "   - Desktop apps සඳහා audio වැඩ කරයි"
+          Write-Host ""
+          Write-Host "⏳ Session active - Auto refresh every 5 min"
+          Write-Host "═════════════════════════════════════════════"
+          Write-Host ""
           
+          $counter = 0
           while ($true) { 
             Start-Sleep -Seconds 300
-            Write-Host "$(Get-Date -Format 'HH:mm:ss') - Session active"
+            $counter++
+            $uptime = $counter * 5
+            Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Session alive - Uptime: $uptime minutes"
           }
